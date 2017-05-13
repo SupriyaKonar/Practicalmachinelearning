@@ -1,0 +1,214 @@
+---
+title: "Practical machine Learning Course project"
+author: "Supriya Konar"
+date: "May 13, 2017"
+output: 
+  html_document: 
+    keep_md: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Background
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+## Data
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.
+
+## Goal
+
+The goal of the project will be to predict the manner in which they did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with. The report will describe the below pieces
+
+"how you built your model"
+"how you used cross validation"
+"what you think the expected out of sample error is"
+"why you made the choices you did"
+
+## Load the necessary R Packages 
+
+```{r}
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(RColorBrewer)
+library(rattle)
+library(randomForest)
+library(knitr)
+```
+
+## Lets Download the Data
+
+```{r}
+## Setting Seed
+set.seed(12345)
+
+##Setting URLs for File Download
+trainUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+##Setting FileNames
+trainFile <-"./pml_data/pml-training.csv"
+testFile <- "./pml_data/pml-testing.csv"
+
+## Create Source File directory within working directory 
+if (!file.exists("./pml_data")) {
+     dir.create("./pml_data")}
+
+## Download File
+if (!file.exists(trainFile)) {
+download.file(trainUrl, destfile=trainFile, method="auto")
+}
+
+if (!file.exists(testFile)) {
+download.file(testUrl, destfile=testFile, method="auto")
+}
+
+```
+
+## Loading and Exploring the Data
+
+```{r}
+
+trainData <- read.csv("./pml_data/pml-training.csv")
+testData <- read.csv("./pml_data/pml-testing.csv")
+
+dim(trainData)
+dim(testData)
+
+str(trainData)
+```
+
+The training data set contains 19622 observations and 160 variables, while the testing data set contains 20 observations and 160 variables. Also there are lot of values NA or useless or empty variables which we will eliminate and discard from our prediction.
+
+## Clean the data
+
+First, we will remove columns that contain NA missing values also we will remove columns that have very little contribution to the dataset measurement.
+
+```{r}
+trainData <- trainData[, colSums(is.na(trainData)) == 0] 
+testData <- testData[, colSums(is.na(testData)) == 0]
+
+classe <- trainData$classe
+colRemoveTrain <- grepl("^X|timestamp|window", names(trainData))
+trainData <- trainData[, !colRemoveTrain]
+trainSubset <- trainData[, sapply(trainData, is.numeric)]
+trainSubset$classe <- classe
+
+colRemoveTest <- grepl("^X|timestamp|window", names(testData))
+testData <- testData[, !colRemoveTest]
+testSubset <- testData[, sapply(testData, is.numeric)]
+
+
+
+
+colnames(trainSubset)
+colnames(testSubset)
+```
+
+Now both the datasets have 53 columns with the same first 52 variables and the last variable classe and  problem_id individually.
+
+## Producing Cross Validation DataSet
+
+we will split the cleaned training set into a pure training data set (70%) and a validation data set of (30%). We will use the validation data set to conduct cross validation in next steps to determine the accuracy of our model.
+
+```{r}
+inTrain <- createDataPartition(trainSubset$classe, p=0.70, list=F)
+trainingSet <- trainSubset[inTrain, ]
+validationSet<- trainSubset[-inTrain, ]
+```
+
+## Data Modeling
+
+### Prediction with Decision Trees
+
+First we will try to use a decision Tree model using function rpart.
+
+```{r}
+## for reproducibality
+set.seed(12345)
+
+## Here we consider 5-fold cross validation
+control <- trainControl(method = "cv", number = 5)
+modfit_rpart <- train(classe ~ ., data = trainingSet, method = "rpart",trControl = control)
+print(modfit_rpart, digits = 4)
+fancyRpartPlot(modfit_rpart$finalModel)
+```
+
+Now lets apply the model on the validation model to check the accuracy of the model
+
+```{r}
+### predict using validation set
+predict_rpart <- predict(modfit_rpart, validationSet)
+conf_rpart <- confusionMatrix(validationSet$classe, predict_rpart)
+
+## Show prediction result
+conf_rpart
+accuracy_rpart <- conf_rpart$overall[1]
+accuracy_rpart
+
+## Plot result
+
+plot(conf_rpart$table, col = conf_rpart$byClass, main = paste("Decision Tree Confusion Matrix: Accuracy =", round(conf_rpart$overall['Accuracy'], 4)))
+
+```
+
+The model renders an accuracy of 0.4963466 which is just lesser than chance so the model doesnt at all performs well and doesnt predict the outcomes very well.
+
+### Prediction with Random Forests
+
+Now we will apply random forest method to check if that method suits the dataset and results in a better prediction model
+
+```{r}
+set.seed(12345)
+modFit_rf <- randomForest(classe ~ ., data=trainingSet)
+print(modFit_rf, digits = 4)
+plot(modFit_rf)
+
+```
+
+Now lets apply the model on the validation dataset
+
+```{r}
+## predict using validation set
+predict_rf <- predict(modFit_rf, validationSet, type = "class")
+conf_rf <- confusionMatrix(predict_rf, validationSet$classe)
+
+## Show prediction result
+conf_rf
+accuracy_rf <- conf_rf$overall[1]
+accuracy_rf 
+
+## Plot result
+plot(conf_rf$table, col = conf_rf$byClass, main = paste("Random Forest Confusion Matrix: Accuracy =", round(conf_rf$overall['Accuracy'], 4)))
+```
+
+## Conclusion
+
+Random Forests gave an Accuracy in the testing dataset of 99.25%, which was more accurate than what we got from the Decision Trees. 
+
+The expected out-of-sample error is 100-99.25 = 0.75%.
+
+
+##Predicting Results on the Test Data
+
+
+We will now apply  arandom forests to predict the outcome for the Testing data set
+
+```{r}
+predictionTestData <- predict(modFit_rf, testSubset, type = "class")
+predictionTestData
+```
+
+
+
